@@ -1,0 +1,226 @@
+---
+output: html_document
+mainfont: Ascii
+geometry: margin=0.00in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(plotly)
+library(pracma)
+options(digits = 1)
+```
+
+
+```{r, echo=FALSE, warning=F, message=F}
+select_product <- "Pi23"
+select_lens <- "Pi23"
+
+master_data <- readxl::read_excel("C:/Users/johnl/OneDrive/Desktop/Regulatory/Master/Technical_Information.xlsx") %>%  
+  filter(Product == select_product) %>% 
+  mutate(`CE Expiration` = as.numeric(`CE Expiration`)) %>% 
+  mutate(`CE Expiration` = as.Date(`CE Expiration`, origin = "1899-12-30"))
+
+select_specs <- master_data %>% 
+  select(c(`Material(s)`, `VLT`, `OD Specs`, `CE Specs`, `CE Testing Basis`, `CE Registration ID` , `CE Expiration`))  %>%
+  mutate(VLT = scales::percent(as.numeric(VLT)))
+
+select_instruct <- master_data %>% 
+  select(c(`Instructions for Cleaning and Disinfecting`, `Instructions for Use`))
+  
+
+form_data_specs <- t(select_specs)
+
+form_data_instruct <- t(select_instruct)
+
+od_data <- readxl::read_excel("OD_Measurements.xlsx") %>% 
+  pivot_longer(!Wavelength, names_to = "Lens", values_to = "Optical Density") %>% 
+  filter(Lens == select_lens) %>% 
+  drop_na() %>% 
+  mutate(`Optical Density` = if_else(`Optical Density` > 10, 10, `Optical Density`))
+
+# od_averaged <- movavg(od_data$`Optical Density`, n = 8)
+# 
+# od_data <- od_data %>%
+#   mutate(`Optical Density` = od_averaged)
+
+calorimetry_data <- od_data %>% 
+  mutate("%T" = floor(100*10^(-`Optical Density`))) %>% 
+  filter(Wavelength > 380,
+         Wavelength < 740) %>% 
+  mutate("Color" = if_else(Wavelength < 431, "violet",
+                 if_else(Wavelength < 501, "blue",
+                         if_else(Wavelength < 521, "cyan",
+                                 if_else(Wavelength <566, "green",
+                                         if_else(Wavelength < 581, "yellow",
+                                                 if_else(Wavelength < 626, "orange",
+                                                         "red"))))))) %>%
+  mutate("Color" = as.factor(Color))
+
+```
+
+
+
+\renewcommand{\arraystretch}{3}
+```{r, echo=FALSE, warning=F, message=F}
+table_specs <- kable(form_data_specs,
+                    format = 'html',
+                    escape = F,
+                    align = 'l') %>% 
+  kable_styling(bootstrap_options = c( "hover", "responsive")) %>% 
+  column_spec(column = 1, bold = T, width = "6cm") 
+
+table_instruct <- kable(form_data_instruct,
+                    format = 'html',
+                    escape = T,
+                    align = 'l') %>% 
+  kable_styling(bootstrap_options = c("condensed", "hover", "responsive"))%>% 
+  column_spec(column = 1, bold = T, width = "6cm")
+```
+
+
+
+```{r, echo=FALSE, fig.align='left', out.width="25%"}
+# include logo in top left
+
+knitr::include_graphics(path = "C:/Users/johnl/OneDrive/Desktop/Regulatory/Master/Tech Data Sheets/images/io_logo_wide.jpg") 
+```
+
+```{r, echo=F, fig.align='center', out.width="25%"}
+# include image of product
+image_path_gen <- master_data$Image_path
+  
+knitr::include_graphics(path = image_path_gen)
+```
+
+# **`r master_data$Product` `r master_data$Category` Specifications**
+
+```{r, echo=FALSE, warning=F}
+# include tables
+table_specs
+```
+
+---
+
+```{r, echo=F, out.width="100%", message=F, warning=F}
+cal_plot <- ggplot(calorimetry_data, aes(Wavelength, `%T`, fill = Color))+
+  geom_col() +
+  scale_fill_identity()+
+  scale_x_continuous(limits = c(380, 740),
+                     breaks = seq(from = 380,
+                                  to = 740,
+                                  by = 20))+
+  scale_y_continuous(limits = c(0, 100),
+                     breaks = seq(from = 0,
+                                  to = 100,
+                                  by = 20))+
+  theme(legend.position = "none",
+        legend.text = element_text(size = 14),
+        plot.background = element_rect(fill = "white",
+                                       colour = "black"),
+        panel.background = element_rect(colour = "darkgrey"),
+        panel.grid = element_line(color = "lightgrey"),
+        axis.text = element_text(size = 11, angle = 90),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 15, face = "bold")
+  )+
+  labs(title = "Interactive Plot - Percent VLT vs Wavelength",
+        y = "% Transmittance",
+        x = "Wavelength (nm)"
+       )
+
+ggplotly(cal_plot)%>%
+  layout(dragmode = "zoom") %>%
+  style(hoverlabel = "label") %>%
+  config(displaylogo = F
+         )
+```
+
+
+
+-----
+
+```{r, echo=F, fig.align='center', out.width="100%", warning = F, message=F}
+od_plot <- ggplot(od_data, aes(Wavelength, `Optical Density`))+
+  geom_line(color = "black") +
+  scale_x_log10(limits = c(min(od_data$`Wavelength`),max(od_data$`Wavelength`)),
+                 breaks = c(seq(min(od_data$`Wavelength`),
+                              to = 1100,
+                              by = 50),
+                            seq(from = 1200,
+                              to = max(od_data$`Wavelength`),
+                              by = 150))
+                )+
+  scale_y_continuous(limits = c(from = 0,
+                                to = 10),
+                     breaks = seq(from = 0,
+                                  to = 10,
+                                  by = 1))+#,
+                    #sec.axis = sec_axis(trans=~.*10, name="% Transmission"))+
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 14),
+        plot.background = element_rect(fill = "white",
+                                       colour = "black"),
+        panel.background = element_rect(colour = "darkgrey"),
+        panel.grid = element_line(color = "lightgrey"),
+        axis.text = element_text(size = 11, angle = 90),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 15, face = "bold")
+  )+
+   # scale_color_identity(name = NULL,
+   #                      breaks = c("red", "black"),
+   #                      labels = c("% Transmission", "Optical Density"),
+   #                      guide = "legend")+
+   labs(tag = select_lens,
+        title = "Interactive Plot - Optical Density vs Wavelength",
+        color = NULL,
+        y = "Optical Density",
+        x = "Wavelength (nm)",
+        caption = "none")
+
+# ay <- list(
+#   tickfont = list(size=11),
+#   titlefont=list(size=14),
+#   overlaying = "y",
+#   nticks = 5,
+#   side = "right",
+#   title = "% Transmission"
+# )
+
+
+
+ggplotly(od_plot) %>%
+  layout(dragmode = "zoom") %>%
+  style(hoverlabel = "label") %>%
+  config(displaylogo = F
+         )
+# %>%
+#   add_lines(x=~Wavelength, y = ~10*(10^(-`Optical Density`)), colors=NULL, yaxis="y2",
+#             data=od_data_sec_axis, showlegend=F, inherit=FALSE) %>%
+#   layout(legend = list(
+#       orientation = "h",
+#       x = 1,
+#       y = 1),
+#       yaxis2 = ay)
+
+```
+
+---
+
+# General User Information
+
+```{r, echo=F}
+table_instruct
+```
+
+
+##### Created `r format(Sys.time(), '%B %d, %Y')`
+
+```{r, echo=F, fig.align='right', out.width="10%"}
+# and a final logo for completeness (bottom right)
+knitr::include_graphics(path = "C:/Users/johnl/OneDrive/Desktop/Regulatory/Master/Spec Sheets/IOLogo.png")
+```
+
